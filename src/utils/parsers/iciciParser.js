@@ -1,10 +1,4 @@
-/**
- * iciciParser.js
- * Specialized multi-line state-machine parser for ICICI Bank statements.
- */
-
 export function parseICICIMultiLineTransactions(lines) {
-  console.log("🔍 Running ICICI token-based transaction parser...");
   const transactions = [];
 
   const datePattern = /^\d{2}[\.\/-]\d{2}[\.\/-]\d{4}$/;

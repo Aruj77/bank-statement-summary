@@ -6,9 +6,10 @@ import { useStatement } from "../context/StatementContext";
 
 const SUPPORTED_BANKS = [
   { id: "icici", name: "ICICI Bank" },
-  { id: "ippb", name: "India Post Payments Bank (IPPB)" },
+  { id: "ippb", name: "SBI / India Post Payments Bank (IPPB)" },
+  { id: "kotak", name: "Kotak Mahindra Bank" },
   { id: "hdfc", name: "HDFC Bank" },
-  { id: "sbi", name: "State Bank of India (SBI)" },
+  { id: "indusind", name: "IndusInd Bank" },
   { id: "axis", name: "Axis Bank" },
   { id: "pnb", name: "PNB Bank" },
 ];
@@ -161,7 +162,6 @@ export const FileDropzone = () => {
           onChange={(e) => {
             if (e.target.files) {
               handleFiles(e.target.files);
-              // Reset file input value so uploading the exact same file again triggers onChange
               e.target.value = "";
             }
           }}

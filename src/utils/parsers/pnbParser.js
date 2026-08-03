@@ -59,10 +59,6 @@ export function parsePNBTransactions(lines) {
     if (!line) continue;
 
     const match = line.match(txnRegex);
-
-    // -----------------------------
-    // New transaction starts
-    // -----------------------------
     if (match) {
       if (currentTxn) {
         currentTxn.description = currentTxn.description
@@ -77,14 +73,6 @@ export function parsePNBTransactions(lines) {
       const rawType = match[3].toUpperCase();
       const balance = parseAmount(match[4]);
       const description = match[5] || "";
-
-      // =====================================================
-      // YOUR REQUIRED MAPPING
-      //
-      // CR  -> Withdrawal
-      // DR  -> Deposit
-      // =====================================================
-
       const isWithdrawal = rawType === "CR";
 
       const withdrawal = isWithdrawal ? amount : 0;
@@ -122,10 +110,6 @@ export function parsePNBTransactions(lines) {
 
       continue;
     }
-
-    // -----------------------------
-    // Continuation line
-    // -----------------------------
     if (!currentTxn) continue;
 
     const lower = line.toLowerCase();

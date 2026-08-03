@@ -2,6 +2,10 @@ import * as pdfjsLib from "pdfjs-dist";
 import { parseICICIMultiLineTransactions } from "./iciciParser";
 import { parseIPPBTransactions } from "./ippbParser";
 import { parsePNBTransactions } from "./pnbParser";
+import { parseKotakTransactions } from "./kotakParser";
+import { parseHdfcTransactions } from "./hdfcParser";
+import { parseIndusIndTransactions } from "./indusindParser";
+import { parseAxisTransactions } from "./axisParser"; // Import your Axis parser
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
@@ -11,9 +15,6 @@ export async function parsePDFFile(
   passwordCallback = null,
 ) {
   const startTime = performance.now();
-
-  console.group(`📄 Parsing: ${file.name}`);
-  console.log("PDF.js Version:", pdfjsLib.version);
 
   const arrayBuffer = await file.arrayBuffer();
   const typedArray = new Uint8Array(arrayBuffer);
@@ -29,8 +30,6 @@ export async function parsePDFFile(
     // Handle password protected PDFs
     if (typeof passwordCallback === "function") {
       loadingTask.onPassword = async (updatePassword, reason) => {
-        console.log("🔒 Password requested. Reason:", reason);
-
         const message =
           reason === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD
             ? "Incorrect password. Please try again."
@@ -53,18 +52,17 @@ export async function parsePDFFile(
 
     const pdf = await loadingTask.promise;
 
-    console.log(`Pages: ${pdf.numPages}`);
-
     let lines = [];
 
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
       const page = await pdf.getPage(pageNumber);
       const textContent = await page.getTextContent();
 
-      if (bankType.toLowerCase() === "icici" || bankType.toLowerCase() === "ippb") {
-        // -----------------------------
-        // ICICI needs token extraction
-        // -----------------------------
+      // Include "indusind" and "axis" alongside coordinate-based row extractors to preserve tabular alignment properly
+      if (
+        bankType.toLowerCase() === "icici" ||
+        bankType.toLowerCase() === "ippb"
+      ) {
         const pageLines = textContent.items
           .map((item) => item.str)
           .join("\n")
@@ -73,7 +71,7 @@ export async function parsePDFFile(
         lines.push(...pageLines);
       } else {
         // ---------------------------------------
-        // PNB / IPPB / others need row extraction
+        // PNB / HDFC / IndusInd / Axis / others need row extraction
         // ---------------------------------------
         const rowsMap = {};
 
@@ -123,8 +121,22 @@ export async function parsePDFFile(
         transactions = parsePNBTransactions(lines);
         break;
 
+      case "kotak":
+        transactions = parseKotakTransactions(lines);
+        break;
+
       case "hdfc":
+        transactions = parseHdfcTransactions(lines);
+        break;
+
+      case "indusind":
+        transactions = parseIndusIndTransactions(lines);
+        break;
+
       case "axis":
+        transactions = parseAxisTransactions(lines);
+        break;
+
       case "sbi":
         throw new Error(
           `${bankType.toUpperCase()} parser is not implemented yet.`,
@@ -138,17 +150,8 @@ export async function parsePDFFile(
       throw new Error("No transactions found.");
     }
 
-    console.log(
-      `✅ Parsed ${transactions.length} transactions in ${(
-        performance.now() - startTime
-      ).toFixed(0)} ms`,
-    );
-
-    console.groupEnd();
-
     return transactions;
   } catch (err) {
-    console.groupEnd();
     console.error(err);
 
     if (
