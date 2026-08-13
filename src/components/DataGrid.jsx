@@ -1,16 +1,79 @@
 import React, { useState, useMemo } from "react";
 import { useStatement } from "../context/StatementContext";
-import { formatCurrency, formatDate } from "../utils/formatters";
+import { formatCurrency } from "../utils/formatters";
 import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 
 export const DataGrid = () => {
   const { transactions } = useStatement();
 
-  // Sorting state: key (sno | date | withdrawal | deposit | balance), direction ('asc' | 'desc')
+  // Default sorting configuration to show initial serial number order automatically on load
   const [sortConfig, setSortConfig] = useState({
-    key: null,
+    key: "sno",
     direction: "asc",
   });
+
+  // Accurate date parser built exclusively for sorting raw string dates
+  const parseCustomDate = (dateStr) => {
+    if (!dateStr) return 0;
+    const cleanStr = String(dateStr).trim();
+
+    // 1. Handle numeric formats with slashes or hyphens (e.g., DD/MM/YYYY, DD-MM-YY, YYYY-MM-DD)
+    const parts = cleanStr.split(/[\/\-\.]/);
+    if (parts.length === 3) {
+      let [p1, p2, p3] = parts;
+
+      let year, month, day;
+      if (p1.length === 4) {
+        // Format: YYYY-MM-DD
+        year = p1;
+        month = p2;
+        day = p3;
+      } else {
+        // Format: DD-MM-YYYY or DD-MM-YY
+        day = p1;
+        month = p2;
+        year = p3;
+        if (year.length === 2) {
+          year = "20" + year; // Convert YY to 20YY
+        }
+      }
+
+      const timestamp = new Date(`${year}-${month}-${day}`).getTime();
+      if (!isNaN(timestamp)) return timestamp;
+    }
+
+    // 2. Handle alphanumeric formats (e.g., "03 Mar 2026" or "3-Mar-26")
+    const months = {
+      jan: 0,
+      feb: 1,
+      mar: 2,
+      apr: 3,
+      may: 4,
+      jun: 5,
+      jul: 6,
+      aug: 7,
+      sep: 8,
+      oct: 9,
+      nov: 10,
+      dec: 11,
+    };
+
+    const matches = cleanStr.match(
+      /(\d{1,2})[\s\-]+([A-Za-z]{3})[\s\-]+(\d{2,4})/,
+    );
+    if (matches) {
+      let [, day, monthStr, year] = matches;
+      if (year.length === 2) year = "20" + year;
+      const monthIdx = months[monthStr.toLowerCase().substring(0, 3)];
+      if (monthIdx !== undefined) {
+        return new Date(Number(year), monthIdx, Number(day)).getTime();
+      }
+    }
+
+    // 3. Fallback to standard JS parser
+    const fallbackTimestamp = new Date(cleanStr).getTime();
+    return !isNaN(fallbackTimestamp) ? fallbackTimestamp : 0;
+  };
 
   const handleSort = (key) => {
     let direction = "asc";
@@ -23,7 +86,6 @@ export const DataGrid = () => {
     setSortConfig({ key, direction });
   };
 
-  // Helper to extract values cleanly for sorting
   const getSortableValue = (item, index, key) => {
     const isWithdrawal = item.type === "WITHDRAWAL" || item.type === "DEBIT";
     const isDeposit = item.type === "DEPOSIT" || item.type === "CREDIT";
@@ -32,7 +94,7 @@ export const DataGrid = () => {
       case "sno":
         return item.sNo ?? index + 1;
       case "date":
-        return item.date ? new Date(item.date).getTime() : 0;
+        return parseCustomDate(item.date);
       case "withdrawal":
         return isWithdrawal ? Number(item.withdrawal || item.amount || 0) : 0;
       case "deposit":
@@ -44,7 +106,6 @@ export const DataGrid = () => {
     }
   };
 
-  // Sort transactions based on current sortConfig
   const sortedTransactions = useMemo(() => {
     if (!sortConfig.key) return transactions;
 
@@ -61,7 +122,6 @@ export const DataGrid = () => {
     });
   }, [transactions, sortConfig]);
 
-  // Calculate totals for withdrawals and deposits across all transactions
   const totals = useMemo(() => {
     return transactions.reduce(
       (acc, t) => {
@@ -94,13 +154,10 @@ export const DataGrid = () => {
 
   return (
     <div className="bg-slate-800/80 border border-slate-700/60 rounded-xl overflow-hidden flex flex-col">
-      {/* Scrollable Box Container */}
-      <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+      <div className="overflow-x-auto max-h-[500px] overflow-y-auto pb-6">
         <table className="w-full text-left text-sm text-slate-300 relative">
-          {/* Sticky Header */}
           <thead className="bg-slate-900 sticky top-0 z-10 text-xs text-slate-400 uppercase border-b border-slate-700 select-none shadow-md">
             <tr>
-              {/* S.No Header */}
               <th
                 onClick={() => handleSort("sno")}
                 className="p-3 text-center cursor-pointer hover:bg-slate-800 transition-colors group bg-slate-900"
@@ -117,7 +174,6 @@ export const DataGrid = () => {
                 </div>
               </th>
 
-              {/* Date Header */}
               <th
                 onClick={() => handleSort("date")}
                 className="p-3 cursor-pointer hover:bg-slate-800 transition-colors group bg-slate-900"
@@ -134,10 +190,8 @@ export const DataGrid = () => {
                 </div>
               </th>
 
-              {/* Description Header */}
               <th className="p-3 bg-slate-900">Description</th>
 
-              {/* Withdrawal Amount Header */}
               <th
                 onClick={() => handleSort("withdrawal")}
                 className="p-3 text-right cursor-pointer hover:bg-slate-800 transition-colors group bg-slate-900"
@@ -156,7 +210,6 @@ export const DataGrid = () => {
                 </div>
               </th>
 
-              {/* Deposit Amount Header */}
               <th
                 onClick={() => handleSort("deposit")}
                 className="p-3 text-right cursor-pointer hover:bg-slate-800 transition-colors group bg-slate-900"
@@ -175,7 +228,6 @@ export const DataGrid = () => {
                 </div>
               </th>
 
-              {/* Balance Header */}
               <th
                 onClick={() => handleSort("balance")}
                 className="p-3 text-right cursor-pointer hover:bg-slate-800 transition-colors group bg-slate-900"
@@ -226,9 +278,7 @@ export const DataGrid = () => {
                     <td className="p-3 text-center text-slate-400 text-xs whitespace-nowrap">
                       {serialNumber}
                     </td>
-                    <td className="p-3 whitespace-nowrap">
-                      {formatDate(t.date)}
-                    </td>
+                    <td className="p-3 whitespace-nowrap">{t.date || "-"}</td>
                     <td
                       className="p-3 max-w-sm truncate"
                       title={descriptionText}
@@ -252,7 +302,6 @@ export const DataGrid = () => {
         </table>
       </div>
 
-      {/* Footer Bar with Total Summaries */}
       <div className="p-3 bg-slate-900 border-t border-slate-700 flex flex-wrap items-center justify-between text-xs gap-3">
         <span className="text-slate-400 font-medium">
           Total Entries:{" "}

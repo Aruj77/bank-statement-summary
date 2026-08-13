@@ -1,17 +1,10 @@
 import * as pdfjsLib from "pdfjs-dist";
-import { parseICICIMultiLineTransactions } from "./iciciParser";
-import { parseIPPBTransactions } from "./ippbParser";
-import { parsePNBTransactions } from "./pnbParser";
-import { parseKotakTransactions } from "./kotakParser";
-import { parseHdfcTransactions } from "./hdfcParser";
-import { parseIndusIndTransactions } from "./indusindParser";
-import { parseAxisTransactions } from "./axisParser"; // Import your Axis parser
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 export async function parsePDFFile(
   file,
-  bankType = "icici",
+  bankType = "axis",
   passwordCallback = null,
 ) {
   const startTime = performance.now();
@@ -20,6 +13,7 @@ export async function parsePDFFile(
   const typedArray = new Uint8Array(arrayBuffer);
 
   let loadingTask;
+  let resolvedPassword = "";
 
   try {
     loadingTask = pdfjsLib.getDocument({
@@ -27,7 +21,7 @@ export async function parsePDFFile(
       useSystemFonts: true,
     });
 
-    // Handle password protected PDFs
+    // Handle password protected PDFs via popup callback first
     if (typeof passwordCallback === "function") {
       loadingTask.onPassword = async (updatePassword, reason) => {
         const message =
@@ -43,114 +37,16 @@ export async function parsePDFFile(
             return;
           }
 
-          updatePassword(password.trim());
+          resolvedPassword = password.trim();
+          updatePassword(resolvedPassword);
         } catch (e) {
           loadingTask.destroy();
         }
       };
     }
 
-    const pdf = await loadingTask.promise;
-
-    let lines = [];
-
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-      const page = await pdf.getPage(pageNumber);
-      const textContent = await page.getTextContent();
-
-      // Include "indusind" and "axis" alongside coordinate-based row extractors to preserve tabular alignment properly
-      if (
-        bankType.toLowerCase() === "icici" ||
-        bankType.toLowerCase() === "ippb"
-      ) {
-        const pageLines = textContent.items
-          .map((item) => item.str)
-          .join("\n")
-          .split("\n");
-
-        lines.push(...pageLines);
-      } else {
-        // ---------------------------------------
-        // PNB / HDFC / IndusInd / Axis / others need row extraction
-        // ---------------------------------------
-        const rowsMap = {};
-
-        for (const item of textContent.items) {
-          const y = Math.round(item.transform[5] / 3) * 3;
-
-          if (!rowsMap[y]) rowsMap[y] = [];
-
-          rowsMap[y].push({
-            x: item.transform[4],
-            str: item.str,
-          });
-        }
-
-        const sortedRows = Object.keys(rowsMap).sort(
-          (a, b) => Number(b) - Number(a),
-        );
-
-        for (const y of sortedRows) {
-          const row = rowsMap[y]
-            .sort((a, b) => a.x - b.x)
-            .map((i) => i.str)
-            .join(" ")
-            .trim();
-
-          if (row) {
-            lines.push(row);
-          }
-        }
-      }
-    }
-
-    lines = lines.map((l) => l.trim()).filter(Boolean);
-
-    let transactions = [];
-
-    switch (bankType.toLowerCase()) {
-      case "icici":
-        transactions = parseICICIMultiLineTransactions(lines);
-        break;
-
-      case "ippb":
-        transactions = parseIPPBTransactions(lines);
-        break;
-
-      case "pnb":
-        transactions = parsePNBTransactions(lines);
-        break;
-
-      case "kotak":
-        transactions = parseKotakTransactions(lines);
-        break;
-
-      case "hdfc":
-        transactions = parseHdfcTransactions(lines);
-        break;
-
-      case "indusind":
-        transactions = parseIndusIndTransactions(lines);
-        break;
-
-      case "axis":
-        transactions = parseAxisTransactions(lines);
-        break;
-
-      case "sbi":
-        throw new Error(
-          `${bankType.toUpperCase()} parser is not implemented yet.`,
-        );
-
-      default:
-        throw new Error(`Unsupported bank: ${bankType}`);
-    }
-
-    if (!transactions.length) {
-      throw new Error("No transactions found.");
-    }
-
-    return transactions;
+    // Attempt to load the PDF purely to trigger the password popup if needed
+    await loadingTask.promise;
   } catch (err) {
     console.error(err);
 
@@ -171,6 +67,23 @@ export async function parsePDFFile(
       throw new Error("PASSWORD_CANCELLED");
     }
 
-    throw err;
+    // If it failed for other reasons, we can still let the backend try or throw
   }
+
+  // Once password is authenticated via popup (or if none was needed), send file & password to backend API
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("bankType", bankType);
+  formData.append("password", resolvedPassword);
+
+  const response = await fetch("http://localhost:5000/parse-pdf", {
+    method: "POST",
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to parse PDF on server.");
+  }
+  return data;
 }
