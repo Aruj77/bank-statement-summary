@@ -128,6 +128,21 @@ export const FileDropzone = () => {
     setStatusMessage("");
   };
 
+  const getLogoDomain = (bankName) => {
+    if (!bankName) return "bank.com";
+    const cleanName = bankName.toLowerCase().replace(/bank/g, "").trim();
+    if (cleanName.includes("chase")) return "chase.com";
+    if (cleanName.includes("hdfc")) return "hdfcbank.com";
+    if (cleanName.includes("sbi") || cleanName.includes("state bank of india"))
+      return "sbi.co.in";
+    if (cleanName.includes("icici")) return "icicibank.com";
+    if (cleanName.includes("axis")) return "axisbank.com";
+    if (cleanName.includes("citi")) return "citi.com";
+    if (cleanName.includes("wells fargo")) return "wellsfargo.com";
+    if (cleanName.includes("bank of america") || cleanName.includes("bofa"))
+      return "bankofamerica.com";
+    return `${cleanName.replace(/\s+/g, "")}.com`;
+  };
   return (
     <div className="w-full space-y-4">
       {/* Detected Bank Details Card */}
@@ -135,7 +150,14 @@ export const FileDropzone = () => {
         <div className="bg-slate-900 border border-sky-500/40 rounded-xl p-4 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-slate-200">
           <div className="flex items-start space-x-3">
             <div className="p-2.5 bg-sky-500/10 border border-sky-500/30 rounded-lg text-sky-400 mt-0.5">
-              <Building2 className="w-5 h-5" />
+              <img
+                src={`https://img.logo.dev/${getLogoDomain(detectedStatementInfo?.bank)}?token=pk_Ub-Tj_SsTtmHJKOJa9lJSA`}
+                alt={detectedStatementInfo.bank}
+                className="w-20 h-20 object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-2">
