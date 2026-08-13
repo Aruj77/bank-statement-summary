@@ -76,7 +76,7 @@ export async function parsePDFFile(
   formData.append("bankType", bankType);
   formData.append("password", resolvedPassword);
 
-  const response = await fetch("http://localhost:5000/parse-pdf", {
+  const response = await fetch("https://bank-statement-summary-backend.vercel.app/parse-pdf", {
     method: "POST",
     body: formData,
   });
