@@ -79,7 +79,9 @@ export const FileDropzone = () => {
           result = await parsePDFFile(file, "", (reasonText) =>
             promptPasswordViaModal(reasonText, file.name),
           );
-          pdfPassword = result?.resolvedPassword || "";
+          // Extract authenticated password
+          pdfPassword =
+            result?.resolvedPassword || result?._unlockedPassword || "";
         } else if (
           fileName.endsWith(".csv") ||
           fileName.endsWith(".xlsx") ||
@@ -99,36 +101,36 @@ export const FileDropzone = () => {
           transactionsList = result.data.transactions;
         }
 
-        // Fetch statement metadata from API (passing file and unlocked password)
+        // Fetch statement metadata passing the unlocked password
         setStatusMessage(`Extracting metadata for ${file.name}...`);
         let meta = null;
         try {
-          const formData = new FormData();
-          formData.append("file", file);
+          const metaFormData = new FormData();
+          metaFormData.append("file", file);
           if (pdfPassword) {
-            formData.append("password", pdfPassword);
+            metaFormData.append("password", pdfPassword);
           }
 
           const res = await fetch(
             "https://bank-statement-summary-backend.vercel.app/api/extract-metadata",
             {
               method: "POST",
-              body: formData,
+              body: metaFormData,
             },
           );
 
           if (res.ok) {
             const json = await res.json();
             meta = json?.data || json;
+          } else {
+            const errJson = await res.json();
+            console.warn("Metadata API returned error:", errJson);
           }
         } catch (apiErr) {
-          console.warn(
-            "Metadata extraction API failed, using fallback parser data:",
-            apiErr,
-          );
+          console.warn("Metadata extraction API failed:", apiErr);
         }
 
-        // Extract metadata fields only if available, fallback to parser result if missing
+        // Extract metadata fields
         const bankName =
           meta?.bankName ||
           (result?.bank ? `${result.bank} Bank` : "Detected Bank");
@@ -144,8 +146,10 @@ export const FileDropzone = () => {
         const panNumber = meta?.panNumber || null;
         const cifNumber = meta?.cifNumber || null;
         const statementPeriod = meta?.statementPeriod || null;
-        const openingBalance = meta?.openingBalance || null;
-        const closingBalance = meta?.closingBalance || null;
+        const openingBalance =
+          meta?.openingBalance || result?.summary?.openingBalance || null;
+        const closingBalance =
+          meta?.closingBalance || result?.summary?.closingBalance || null;
 
         const descriptiveIdentifier =
           `${bankName} ${accountNumber ? `A/C: ${accountNumber}` : ""}`.trim();
@@ -188,7 +192,8 @@ export const FileDropzone = () => {
     if (!bankName) return "bank.com";
     const cleanName = bankName.toLowerCase().replace(/bank/g, "").trim();
 
-    // Specific Indian Bank domain overrides
+    if (cleanName.includes("post payments") || cleanName.includes("ippb"))
+      return "ippbonline.com";
     if (cleanName.includes("punjab national") || cleanName.includes("pnb"))
       return "pnb.bank.in";
     if (
@@ -210,14 +215,12 @@ export const FileDropzone = () => {
     if (cleanName.includes("yes")) return "yesbank.in";
     if (cleanName.includes("idbi")) return "idbibank.in";
 
-    // International Banks
     if (cleanName.includes("chase")) return "chase.com";
     if (cleanName.includes("citi")) return "citi.com";
     if (cleanName.includes("wells fargo")) return "wellsfargo.com";
     if (cleanName.includes("of america") || cleanName.includes("bofa"))
       return "bankofamerica.com";
 
-    // Fallback
     return `${cleanName.replace(/\s+/g, "")}.com`;
   };
 

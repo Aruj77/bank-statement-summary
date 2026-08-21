@@ -21,7 +21,6 @@ export async function parsePDFFile(
       useSystemFonts: true,
     });
 
-    // Handle password protected PDFs via popup callback
     if (typeof passwordCallback === "function") {
       loadingTask.onPassword = async (updatePassword, reason) => {
         const message =
@@ -45,7 +44,6 @@ export async function parsePDFFile(
       };
     }
 
-    // Trigger pdfjs loader to prompt password modal if required
     await loadingTask.promise;
   } catch (err) {
     if (
@@ -66,7 +64,6 @@ export async function parsePDFFile(
     }
   }
 
-  // Dispatch authenticated request to backend parser API
   const formData = new FormData();
   formData.append("file", file);
   formData.append("bankType", bankType);
@@ -86,9 +83,9 @@ export async function parsePDFFile(
     );
   }
 
-  // Return the resolvedPassword so subsequent metadata calls can reuse it
   return {
     ...data,
+    resolvedPassword: resolvedPassword,
     _unlockedPassword: resolvedPassword,
   };
 }
