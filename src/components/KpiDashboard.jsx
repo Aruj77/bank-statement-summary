@@ -5,8 +5,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Wallet,
-  AlertTriangle,
   Layers,
+  IndianRupee,
 } from "lucide-react";
 
 export const KpiDashboard = () => {
@@ -35,11 +35,14 @@ export const KpiDashboard = () => {
       bg: "bg-sky-500/10",
     },
     {
-      title: "Flagged Anomalies",
-      value: kpis.suspiciousCount,
-      icon: AlertTriangle,
-      color: "text-amber-400",
-      bg: "bg-amber-500/10",
+      title: "Closing Balance",
+      value:
+        kpis.closingBalance !== null
+          ? formatCurrency(kpis.closingBalance)
+          : "N/A",
+      icon: IndianRupee,
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/10",
     },
     {
       title: "Total Transactions",
@@ -57,7 +60,7 @@ export const KpiDashboard = () => {
         return (
           <div
             key={i}
-            className="bg-slate-800/80 border border-slate-700/60 rounded-xl p-4 flex flex-col justify-between"
+            className="bg-slate-800/80 border border-slate-700/60 rounded-xl p-4 flex flex-col justify-between shadow-sm"
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-slate-400">

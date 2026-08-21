@@ -21,7 +21,7 @@ export async function parsePDFFile(
       useSystemFonts: true,
     });
 
-    // Handle password protected PDFs via popup callback first
+    // Handle password protected PDFs via popup callback
     if (typeof passwordCallback === "function") {
       loadingTask.onPassword = async (updatePassword, reason) => {
         const message =
@@ -45,11 +45,9 @@ export async function parsePDFFile(
       };
     }
 
-    // Attempt to load the PDF purely to trigger the password popup if needed
+    // Trigger pdfjs loader to prompt password modal if required
     await loadingTask.promise;
   } catch (err) {
-    console.error(err);
-
     if (
       err?.name === "PasswordException" ||
       err?.message === "No password given"
@@ -66,15 +64,15 @@ export async function parsePDFFile(
     ) {
       throw new Error("PASSWORD_CANCELLED");
     }
-
-    // If it failed for other reasons, we can still let the backend try or throw
   }
 
-  // Once password is authenticated via popup (or if none was needed), send file & password to backend API
+  // Dispatch authenticated request to backend parser API
   const formData = new FormData();
   formData.append("file", file);
   formData.append("bankType", bankType);
-  formData.append("password", resolvedPassword);
+  if (resolvedPassword) {
+    formData.append("password", resolvedPassword);
+  }
 
   const response = await fetch("https://bank-statement-summary-backend.vercel.app/parse-pdf", {
     method: "POST",
@@ -83,7 +81,14 @@ export async function parsePDFFile(
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.error || "Failed to parse PDF on server.");
+    throw new Error(
+      data.message || data.error || "Failed to parse PDF on server.",
+    );
   }
-  return data;
+
+  // Return the resolvedPassword so subsequent metadata calls can reuse it
+  return {
+    ...data,
+    _unlockedPassword: resolvedPassword,
+  };
 }

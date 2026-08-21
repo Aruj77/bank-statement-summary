@@ -7,6 +7,12 @@ import {
   CreditCard,
   User,
   Wallet,
+  Calendar,
+  IndianRupee,
+  MapPin,
+  FileText,
+  Hash,
+  Landmark,
 } from "lucide-react";
 import { parseCSVFile } from "../utils/bankParser";
 import { parsePDFFile } from "../utils/parsers/pdfParser";
@@ -19,7 +25,6 @@ export const FileDropzone = () => {
   const [statusMessage, setStatusMessage] = useState("");
   const fileInputRef = useRef(null);
 
-  // Expanded state to include account holder and account type
   const [detectedStatementInfo, setDetectedStatementInfo] = useState(null);
 
   const [passwordModal, setPasswordModal] = useState({
@@ -67,14 +72,14 @@ export const FileDropzone = () => {
 
       try {
         let result = null;
+        let pdfPassword = "";
 
         if (fileName.endsWith(".pdf")) {
-          setStatusMessage(
-            `Parsing PDF & Auto-detecting bank: ${file.name}...`,
-          );
+          setStatusMessage(`Parsing PDF: ${file.name}...`);
           result = await parsePDFFile(file, "", (reasonText) =>
             promptPasswordViaModal(reasonText, file.name),
           );
+          pdfPassword = result?.resolvedPassword || "";
         } else if (
           fileName.endsWith(".csv") ||
           fileName.endsWith(".xlsx") ||
@@ -90,26 +95,77 @@ export const FileDropzone = () => {
           transactionsList = result;
         } else if (result?.transactions) {
           transactionsList = result.transactions;
+        } else if (result?.data?.transactions) {
+          transactionsList = result.data.transactions;
         }
 
-        let bankName = result?.bank ? `${result.bank} Bank` : "Detected Bank";
-        let accountNumber = result?.accountNumber
-          ? `${result.accountNumber}`
-          : "N/A";
+        // Fetch statement metadata from API (passing file and unlocked password)
+        setStatusMessage(`Extracting metadata for ${file.name}...`);
+        let meta = null;
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          if (pdfPassword) {
+            formData.append("password", pdfPassword);
+          }
 
-        // Extract or fallback account holder & account type if provided by parser
-        let accountHolder = result?.accountHolder || "Prashant Kumar Garg";
-        let accountType = result?.accountType || "Prime Potential / Savings";
+          const res = await fetch(
+            "https://bank-statement-summary-backend.vercel.app/api/extract-metadata",
+            {
+              method: "POST",
+              body: formData,
+            },
+          );
 
-        let descriptiveIdentifier = `${bankName} A/C: ${accountNumber}`.trim();
+          if (res.ok) {
+            const json = await res.json();
+            meta = json?.data || json;
+          }
+        } catch (apiErr) {
+          console.warn(
+            "Metadata extraction API failed, using fallback parser data:",
+            apiErr,
+          );
+        }
+
+        // Extract metadata fields only if available, fallback to parser result if missing
+        const bankName =
+          meta?.bankName ||
+          (result?.bank ? `${result.bank} Bank` : "Detected Bank");
+        const accountNumber =
+          meta?.accountNumber || result?.accountNumber || null;
+        const accountHolder =
+          meta?.accountHolder || result?.accountHolder || null;
+        const accountType = meta?.accountType || result?.accountType || null;
+        const ifscCode = meta?.ifscCode || null;
+        const micrCode = meta?.micrCode || null;
+        const branch = meta?.branch || null;
+        const address = meta?.address || null;
+        const panNumber = meta?.panNumber || null;
+        const cifNumber = meta?.cifNumber || null;
+        const statementPeriod = meta?.statementPeriod || null;
+        const openingBalance = meta?.openingBalance || null;
+        const closingBalance = meta?.closingBalance || null;
+
+        const descriptiveIdentifier =
+          `${bankName} ${accountNumber ? `A/C: ${accountNumber}` : ""}`.trim();
 
         if (transactionsList.length > 0) {
           setDetectedStatementInfo({
             fileName: file.name,
-            bank: bankName,
-            accountNumber: accountNumber,
-            accountHolder: accountHolder,
-            accountType: accountType,
+            bankName,
+            accountNumber,
+            accountHolder,
+            accountType,
+            ifscCode,
+            micrCode,
+            branch,
+            address,
+            panNumber,
+            cifNumber,
+            statementPeriod,
+            openingBalance,
+            closingBalance,
             totalTransactions: transactionsList.length,
           });
 
@@ -131,78 +187,211 @@ export const FileDropzone = () => {
   const getLogoDomain = (bankName) => {
     if (!bankName) return "bank.com";
     const cleanName = bankName.toLowerCase().replace(/bank/g, "").trim();
-    if (cleanName.includes("chase")) return "chase.com";
-    if (cleanName.includes("hdfc")) return "hdfcbank.com";
-    if (cleanName.includes("sbi") || cleanName.includes("state bank of india"))
+
+    // Specific Indian Bank domain overrides
+    if (cleanName.includes("punjab national") || cleanName.includes("pnb"))
+      return "pnb.bank.in";
+    if (
+      cleanName.includes("sbi") ||
+      cleanName.includes("state of india") ||
+      cleanName.includes("state bank")
+    )
       return "sbi.co.in";
+    if (cleanName.includes("hdfc")) return "hdfcbank.com";
     if (cleanName.includes("icici")) return "icicibank.com";
     if (cleanName.includes("axis")) return "axisbank.com";
+    if (cleanName.includes("kotak")) return "kotak.com";
+    if (cleanName.includes("canara")) return "canarabank.com";
+    if (cleanName.includes("union of india") || cleanName.includes("union"))
+      return "unionbankofindia.co.in";
+    if (cleanName.includes("baroda") || cleanName.includes("bob"))
+      return "bankofbaroda.in";
+    if (cleanName.includes("indusind")) return "indusind.com";
+    if (cleanName.includes("yes")) return "yesbank.in";
+    if (cleanName.includes("idbi")) return "idbibank.in";
+
+    // International Banks
+    if (cleanName.includes("chase")) return "chase.com";
     if (cleanName.includes("citi")) return "citi.com";
     if (cleanName.includes("wells fargo")) return "wellsfargo.com";
-    if (cleanName.includes("bank of america") || cleanName.includes("bofa"))
+    if (cleanName.includes("of america") || cleanName.includes("bofa"))
       return "bankofamerica.com";
+
+    // Fallback
     return `${cleanName.replace(/\s+/g, "")}.com`;
   };
+
   return (
     <div className="w-full space-y-4">
       {/* Detected Bank Details Card */}
       {detectedStatementInfo && (
-        <div className="bg-slate-900 border border-sky-500/40 rounded-xl p-4 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-slate-200">
-          <div className="flex items-start space-x-3">
-            <div className="p-2.5 bg-sky-500/10 border border-sky-500/30 rounded-lg text-sky-400 mt-0.5">
-              <img
-                src={`https://img.logo.dev/${getLogoDomain(detectedStatementInfo?.bank)}?token=pk_Ub-Tj_SsTtmHJKOJa9lJSA`}
-                alt={detectedStatementInfo.bank}
-                className="w-20 h-20 object-contain"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
-              />
+        <div className="bg-slate-900 border border-sky-500/40 rounded-xl p-5 shadow-lg flex flex-col gap-4 text-slate-200">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-sky-500/10 border border-sky-500/30 rounded-lg text-sky-400">
+                <img
+                  src={`https://img.logo.dev/${getLogoDomain(detectedStatementInfo.bankName)}?token=pk_Ub-Tj_SsTtmHJKOJa9lJSA`}
+                  alt={detectedStatementInfo.bankName}
+                  className="w-12 h-12 object-contain"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-wider text-sky-400 font-semibold">
+                    Statement Loaded
+                  </span>
+                  <span className="text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
+                    {detectedStatementInfo.fileName}
+                  </span>
+                </div>
+                <h4 className="text-base font-bold text-slate-100">
+                  {detectedStatementInfo.bankName}
+                </h4>
+              </div>
             </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                  Statement Loaded
-                </span>
-                <span className="text-xs font-normal text-slate-400 bg-slate-800 px-2 py-0.5 rounded-md">
-                  {detectedStatementInfo.fileName}
-                </span>
-              </div>
 
-              <h4 className="text-sm font-bold text-slate-100">
-                {detectedStatementInfo.bank}
-              </h4>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 pt-1 text-xs">
-                <p className="text-slate-300 flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-sky-400" />
-                  <span className="text-slate-400">Holder:</span>{" "}
-                  <strong className="text-slate-200">
-                    {detectedStatementInfo.accountHolder}
-                  </strong>
-                </p>
-                <p className="text-slate-300 flex items-center gap-1.5 font-mono">
-                  <CreditCard className="w-3.5 h-3.5 text-sky-400" />
-                  <span className="text-slate-400 font-sans">A/C:</span>{" "}
-                  {detectedStatementInfo.accountNumber}
-                </p>
-                <p className="text-slate-300 flex items-center gap-1.5 sm:col-span-2 pt-0.5">
-                  <Wallet className="w-3.5 h-3.5 text-sky-400" />
-                  <span className="text-slate-400">Type:</span>{" "}
-                  {detectedStatementInfo.accountType}
-                </p>
-              </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-full whitespace-nowrap">
+                {detectedStatementInfo.totalTransactions} Txns Loaded
+              </span>
             </div>
           </div>
-          <div className="self-end md:self-center">
-            <span className="text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-full whitespace-nowrap">
-              {detectedStatementInfo.totalTransactions} Txns Loaded
-            </span>
+
+          {/* Conditional Metadata Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2.5 text-xs">
+            {detectedStatementInfo.accountHolder && (
+              <p className="text-slate-300 flex items-center gap-2">
+                <User className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400">Holder:</span>
+                <strong className="text-slate-200 truncate">
+                  {detectedStatementInfo.accountHolder}
+                </strong>
+              </p>
+            )}
+
+            {detectedStatementInfo.accountNumber && (
+              <p className="text-slate-300 flex items-center gap-2 font-mono">
+                <CreditCard className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400 font-sans">A/C:</span>
+                <span className="text-slate-200 font-semibold">
+                  {detectedStatementInfo.accountNumber}
+                </span>
+              </p>
+            )}
+
+            {detectedStatementInfo.accountType && (
+              <p className="text-slate-300 flex items-center gap-2">
+                <Wallet className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400">Type:</span>
+                <span className="text-slate-200">
+                  {detectedStatementInfo.accountType}
+                </span>
+              </p>
+            )}
+
+            {detectedStatementInfo.ifscCode && (
+              <p className="text-slate-300 flex items-center gap-2 font-mono">
+                <Building2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400 font-sans">IFSC:</span>
+                <span className="text-slate-200">
+                  {detectedStatementInfo.ifscCode}
+                </span>
+              </p>
+            )}
+
+            {detectedStatementInfo.micrCode && (
+              <p className="text-slate-300 flex items-center gap-2 font-mono">
+                <Hash className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400 font-sans">MICR:</span>
+                <span className="text-slate-200">
+                  {detectedStatementInfo.micrCode}
+                </span>
+              </p>
+            )}
+
+            {detectedStatementInfo.cifNumber && (
+              <p className="text-slate-300 flex items-center gap-2 font-mono">
+                <Landmark className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400 font-sans">CIF/CRN:</span>
+                <span className="text-slate-200">
+                  {detectedStatementInfo.cifNumber}
+                </span>
+              </p>
+            )}
+
+            {detectedStatementInfo.panNumber && (
+              <p className="text-slate-300 flex items-center gap-2 font-mono">
+                <FileText className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400 font-sans">PAN:</span>
+                <span className="text-slate-200">
+                  {detectedStatementInfo.panNumber}
+                </span>
+              </p>
+            )}
+
+            {detectedStatementInfo.branch && (
+              <p className="text-slate-300 flex items-center gap-2">
+                <MapPin className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400">Branch:</span>
+                <span className="text-slate-200 truncate">
+                  {detectedStatementInfo.branch}
+                </span>
+              </p>
+            )}
+
+            {(detectedStatementInfo.statementPeriod?.startDate ||
+              detectedStatementInfo.statementPeriod?.endDate) && (
+              <p className="text-slate-300 flex items-center gap-2 sm:col-span-2">
+                <Calendar className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400">Period:</span>
+                <span className="text-slate-200">
+                  {detectedStatementInfo.statementPeriod.startDate || "N/A"} -{" "}
+                  {detectedStatementInfo.statementPeriod.endDate || "N/A"}
+                </span>
+              </p>
+            )}
+
+            {detectedStatementInfo.address && (
+              <p className="text-slate-300 flex items-start gap-2 sm:col-span-2 lg:col-span-3">
+                <MapPin className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                <span className="text-slate-400 shrink-0">Address:</span>
+                <span className="text-slate-200">
+                  {detectedStatementInfo.address}
+                </span>
+              </p>
+            )}
+
+            {(detectedStatementInfo.openingBalance ||
+              detectedStatementInfo.closingBalance) && (
+              <div className="sm:col-span-2 lg:col-span-3 pt-2 mt-1 border-t border-slate-800/80 flex flex-wrap gap-4 text-xs">
+                {detectedStatementInfo.openingBalance && (
+                  <span className="text-slate-400 flex items-center gap-1 font-mono">
+                    <IndianRupee className="w-3.5 h-3.5 text-sky-400 font-sans" />
+                    <span className="font-sans">Opening:</span>{" "}
+                    <strong className="text-slate-200">
+                      {detectedStatementInfo.openingBalance}
+                    </strong>
+                  </span>
+                )}
+                {detectedStatementInfo.closingBalance && (
+                  <span className="text-slate-400 flex items-center gap-1 font-mono">
+                    <IndianRupee className="w-3.5 h-3.5 text-emerald-400 font-sans" />
+                    <span className="font-sans">Closing:</span>{" "}
+                    <strong className="text-emerald-400">
+                      {detectedStatementInfo.closingBalance}
+                    </strong>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Dropzone */}
+      {/* Dropzone Area */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
