@@ -78,6 +78,17 @@ export const StatementProvider = ({ children }) => {
     endDate: "",
   });
 
+  const setParsedData = (fileName, bank, newTxns) => {
+    setFiles([
+      { name: fileName, bank, count: newTxns.length, uploadedAt: new Date() },
+    ]);
+
+    const sorted = [...newTxns].sort(
+      (a, b) => parseUniversalDate(b.date) - parseUniversalDate(a.date),
+    );
+    setTransactions(sorted);
+  };
+
   const addParsedData = (fileName, bank, newTxns) => {
     setFiles((prev) => [
       ...prev,
@@ -197,6 +208,7 @@ export const StatementProvider = ({ children }) => {
         filter,
         setFilter,
         kpis,
+        setParsedData,
         addParsedData,
         clearAll,
       }}
