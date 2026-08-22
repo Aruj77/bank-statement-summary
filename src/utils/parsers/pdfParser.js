@@ -2,7 +2,7 @@ import * as pdfjsLib from "pdfjs-dist";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-const BACKEND_BASE_URL = "http://localhost:5000";
+const BACKEND_BASE_URL = "https://bank-statement-summary-backend.vercel.app";
 
 export async function parsePDFFile(
   file,
