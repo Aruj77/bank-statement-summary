@@ -2,13 +2,13 @@ import * as pdfjsLib from "pdfjs-dist";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
+const BACKEND_BASE_URL = "http://localhost:5000";
+
 export async function parsePDFFile(
   file,
   bankType = "axis",
   passwordCallback = null,
 ) {
-  const startTime = performance.now();
-
   const arrayBuffer = await file.arrayBuffer();
   const typedArray = new Uint8Array(arrayBuffer);
 
@@ -64,6 +64,7 @@ export async function parsePDFFile(
     }
   }
 
+  // 1. Prepare Form Data for PDF parsing
   const formData = new FormData();
   formData.append("file", file);
   formData.append("bankType", bankType);
@@ -71,21 +72,88 @@ export async function parsePDFFile(
     formData.append("password", resolvedPassword);
   }
 
-  const response = await fetch("https://bank-statement-summary-backend.vercel.app/parse-pdf", {
-    method: "POST",
-    body: formData,
-  });
+  // 2. Prepare Form Data for Metadata extraction
+  const metaFormData = new FormData();
+  metaFormData.append("file", file);
+  if (resolvedPassword) {
+    metaFormData.append("password", resolvedPassword);
+  }
 
-  const data = await response.json();
-  if (!response.ok) {
+  // Execute both Parse PDF and Extract Metadata in parallel
+  const [statementResponse, metadataResponse] = await Promise.allSettled([
+    fetch(`${BACKEND_BASE_URL}/parse-pdf`, {
+      method: "POST",
+      body: formData,
+    }),
+    fetch(`${BACKEND_BASE_URL}/api/extract-metadata`, {
+      method: "POST",
+      body: metaFormData,
+    }),
+  ]);
+
+  // Handle Statement Response
+  let statementData = {};
+  if (statementResponse.status === "fulfilled" && statementResponse.value.ok) {
+    statementData = await statementResponse.value.json();
+  } else {
+    const errorPayload =
+      statementResponse.status === "fulfilled"
+        ? await statementResponse.value.json().catch(() => ({}))
+        : {};
     throw new Error(
-      data.message || data.error || "Failed to parse PDF on server.",
+      errorPayload.message ||
+        errorPayload.error ||
+        "Failed to parse PDF statement on server.",
     );
   }
 
+  // Handle Metadata Response
+  let metadata = {};
+  if (metadataResponse.status === "fulfilled" && metadataResponse.value.ok) {
+    try {
+      const json = await metadataResponse.value.json();
+      metadata = json?.data || json;
+    } catch (e) {
+      console.warn("Could not parse metadata JSON:", e);
+    }
+  }
+
+  // Normalize transactions list
+  let transactions = [];
+  if (Array.isArray(statementData)) {
+    transactions = statementData;
+  } else if (Array.isArray(statementData?.transactions)) {
+    transactions = statementData.transactions;
+  } else if (Array.isArray(statementData?.data?.transactions)) {
+    transactions = statementData.data.transactions;
+  }
+
+  // Unified Response
   return {
-    ...data,
-    resolvedPassword: resolvedPassword,
-    _unlockedPassword: resolvedPassword,
+    ...statementData,
+    transactions,
+    metadata,
+    bankName: metadata?.bankName || statementData?.bank || "Detected Bank",
+    accountNumber:
+      metadata?.accountNumber || statementData?.accountNumber || null,
+    accountHolder:
+      metadata?.accountHolder || statementData?.accountHolder || null,
+    accountType: metadata?.accountType || statementData?.accountType || null,
+    ifscCode: metadata?.ifscCode || null,
+    micrCode: metadata?.micrCode || null,
+    branch: metadata?.branch || null,
+    address: metadata?.address || null,
+    panNumber: metadata?.panNumber || null,
+    cifNumber: metadata?.cifNumber || null,
+    statementPeriod: metadata?.statementPeriod || null,
+    openingBalance:
+      metadata?.openingBalance ||
+      statementData?.summary?.openingBalance ||
+      null,
+    closingBalance:
+      metadata?.closingBalance ||
+      statementData?.summary?.closingBalance ||
+      null,
+    resolvedPassword,
   };
 }

@@ -19,13 +19,16 @@ import { parsePDFFile } from "../utils/parsers/pdfParser";
 import { useStatement } from "../context/StatementContext";
 
 export const FileDropzone = () => {
-  const { setParsedData, clearAll } = useStatement();
+  const {
+    setParsedData,
+    clearAll,
+    detectedStatementInfo,
+    setDetectedStatementInfo,
+  } = useStatement();
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const fileInputRef = useRef(null);
-
-  const [detectedStatementInfo, setDetectedStatementInfo] = useState(null);
 
   const [passwordModal, setPasswordModal] = useState({
     isOpen: false,
@@ -65,26 +68,21 @@ export const FileDropzone = () => {
   const handleFiles = async (files) => {
     if (!files || files.length === 0) return;
 
-    // Reset previous file data immediately on new file drop
     clearAll();
-    setDetectedStatementInfo(null);
     setLoading(true);
-    setStatusMessage("Processing file...");
+    setStatusMessage("Processing file & extracting metadata...");
 
     const file = files[0];
     const fileName = file.name.toLowerCase();
 
     try {
       let result = null;
-      let pdfPassword = "";
 
       if (fileName.endsWith(".pdf")) {
-        setStatusMessage(`Parsing PDF: ${file.name}...`);
+        setStatusMessage(`Parsing PDF & Metadata: ${file.name}...`);
         result = await parsePDFFile(file, "", (reasonText) =>
           promptPasswordViaModal(reasonText, file.name),
         );
-        pdfPassword =
-          result?.resolvedPassword || result?._unlockedPassword || "";
       } else if (
         fileName.endsWith(".csv") ||
         fileName.endsWith(".xlsx") ||
@@ -95,89 +93,42 @@ export const FileDropzone = () => {
         throw new Error("Unsupported file format.");
       }
 
-      let transactionsList = [];
-      if (Array.isArray(result)) {
-        transactionsList = result;
-      } else if (result?.transactions) {
-        transactionsList = result.transactions;
-      } else if (result?.data?.transactions) {
-        transactionsList = result.data.transactions;
-      }
-
-      // Fetch statement metadata from API
-      setStatusMessage(`Extracting metadata for ${file.name}...`);
-      let meta = null;
-      try {
-        const metaFormData = new FormData();
-        metaFormData.append("file", file);
-        if (pdfPassword) {
-          metaFormData.append("password", pdfPassword);
-        }
-
-        const res = await fetch(
-          "https://bank-statement-summary-backend.vercel.app/api/extract-metadata",
-          {
-            method: "POST",
-            body: metaFormData,
-          },
-        );
-
-        if (res.ok) {
-          const json = await res.json();
-          meta = json?.data || json;
-        } else {
-          const errJson = await res.json();
-          console.warn("Metadata API returned error:", errJson);
-        }
-      } catch (apiErr) {
-        console.warn("Metadata extraction API failed:", apiErr);
-      }
-
-      // Extract metadata fields
+      const transactionsList =
+        result?.transactions || (Array.isArray(result) ? result : []);
       const bankName =
-        meta?.bankName ||
+        result?.bankName ||
         (result?.bank ? `${result.bank} Bank` : "Detected Bank");
-      const accountNumber =
-        meta?.accountNumber || result?.accountNumber || null;
-      const accountHolder =
-        meta?.accountHolder || result?.accountHolder || null;
-      const accountType = meta?.accountType || result?.accountType || null;
-      const ifscCode = meta?.ifscCode || null;
-      const micrCode = meta?.micrCode || null;
-      const branch = meta?.branch || null;
-      const address = meta?.address || null;
-      const panNumber = meta?.panNumber || null;
-      const cifNumber = meta?.cifNumber || null;
-      const statementPeriod = meta?.statementPeriod || null;
-      const openingBalance =
-        meta?.openingBalance || result?.summary?.openingBalance || null;
-      const closingBalance =
-        meta?.closingBalance || result?.summary?.closingBalance || null;
+      const accountNumber = result?.accountNumber || null;
 
       const descriptiveIdentifier =
         `${bankName} ${accountNumber ? `A/C: ${accountNumber}` : ""}`.trim();
 
       if (transactionsList.length > 0) {
-        setDetectedStatementInfo({
+        const infoObj = {
           fileName: file.name,
           bankName,
           accountNumber,
-          accountHolder,
-          accountType,
-          ifscCode,
-          micrCode,
-          branch,
-          address,
-          panNumber,
-          cifNumber,
-          statementPeriod,
-          openingBalance,
-          closingBalance,
+          accountHolder: result?.accountHolder || null,
+          accountType: result?.accountType || null,
+          ifscCode: result?.ifscCode || null,
+          micrCode: result?.micrCode || null,
+          branch: result?.branch || null,
+          address: result?.address || null,
+          panNumber: result?.panNumber || null,
+          cifNumber: result?.cifNumber || null,
+          statementPeriod: result?.statementPeriod || null,
+          openingBalance: result?.openingBalance || null,
+          closingBalance: result?.closingBalance || null,
           totalTransactions: transactionsList.length,
-        });
+        };
 
-        // Set state to only this newly uploaded file
-        setParsedData(file.name, descriptiveIdentifier, transactionsList);
+        setDetectedStatementInfo(infoObj);
+        setParsedData(
+          file.name,
+          descriptiveIdentifier,
+          transactionsList,
+          infoObj,
+        );
       } else {
         throw new Error("No transactions were found or extracted.");
       }

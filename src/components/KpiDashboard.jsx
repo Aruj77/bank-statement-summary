@@ -10,7 +10,10 @@ import {
 } from "lucide-react";
 
 export const KpiDashboard = () => {
-  const { kpis } = useStatement();
+  const { kpis, detectedStatementInfo } = useStatement();
+
+  const closingBal =
+    detectedStatementInfo?.closingBalance || kpis.closingBalance;
 
   const cards = [
     {
@@ -37,8 +40,13 @@ export const KpiDashboard = () => {
     {
       title: "Closing Balance",
       value:
-        kpis.closingBalance !== null
-          ? formatCurrency(kpis.closingBalance)
+        closingBal !== null && closingBal !== undefined
+          ? `₹${Number(
+              String(closingBal).replace(/[^0-9.-]+/g, ""),
+            ).toLocaleString("en-IN", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}`
           : "N/A",
       icon: IndianRupee,
       color: "text-emerald-400",

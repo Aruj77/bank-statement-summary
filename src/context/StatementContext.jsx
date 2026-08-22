@@ -3,7 +3,7 @@ import { generateHash } from "../utils/formatters";
 
 const StatementContext = createContext();
 
-// Universal date parser to safely handle DD/MM/YYYY, text dates, ISO strings, and edge cases
+// Universal date parser to safely handle formats like "19-Aug-2025", "19/08/2025", "2025-08-19"
 export const parseUniversalDate = (input) => {
   if (!input) return 0;
   if (typeof input === "number") return input;
@@ -16,15 +16,7 @@ export const parseUniversalDate = (input) => {
     str = rowPrefixMatch[1];
   }
 
-  // 1. Check for standard DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
-  const dmyMatch = str.match(/^(\d{1,2})[/\-. ](\d{1,2})[/\-. ](\d{4})/);
-  if (dmyMatch) {
-    const [, day, month, year] = dmyMatch;
-    const d = new Date(Number(year), Number(month) - 1, Number(day));
-    if (!isNaN(d.getTime())) return d.getTime();
-  }
-
-  // 2. Check for DD-Mon-YYYY or DD Mon YYYY (e.g., 21-Mar-2026, 10 Oct 2025)
+  // 1. Text format: DD-Mon-YYYY or DD Mon YYYY (e.g., "19-Aug-2025", "19 August 2025")
   const monthNames = {
     jan: 0,
     feb: 1,
@@ -61,14 +53,32 @@ export const parseUniversalDate = (input) => {
     }
   }
 
-  // 3. Fallback to native JS Date constructor (handles ISO YYYY-MM-DD, Month Day, Year, etc.)
+  // 2. Standard format: DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[/\-. ](\d{1,2})[/\-. ](\d{4})/);
+  if (dmyMatch) {
+    const [, day, month, year] = dmyMatch;
+    const d = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // 3. Fallback standard Date parser (handles ISO YYYY-MM-DD, etc.)
   const parsed = new Date(str).getTime();
   return isNaN(parsed) ? 0 : parsed;
+};
+
+// Helper to clean and convert balances to numbers
+const cleanNumber = (val) => {
+  if (typeof val === "number") return val;
+  if (!val && val !== 0) return NaN;
+  const numericStr = String(val).replace(/[^0-9.-]+/g, "");
+  return Number(numericStr);
 };
 
 export const StatementProvider = ({ children }) => {
   const [files, setFiles] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [rawOrderTransactions, setRawOrderTransactions] = useState([]);
+  const [detectedStatementInfo, setDetectedStatementInfo] = useState(null);
   const [filter, setFilter] = useState({
     search: "",
     bank: "ALL",
@@ -78,15 +88,25 @@ export const StatementProvider = ({ children }) => {
     endDate: "",
   });
 
-  const setParsedData = (fileName, bank, newTxns) => {
+  const setParsedData = (fileName, bank, newTxns, metadata = null) => {
     setFiles([
       { name: fileName, bank, count: newTxns.length, uploadedAt: new Date() },
     ]);
 
-    const sorted = [...newTxns].sort(
-      (a, b) => parseUniversalDate(b.date) - parseUniversalDate(a.date),
-    );
+    // Keep the raw statement order for chronological first/last balance checks
+    setRawOrderTransactions([...newTxns]);
+
+    // Sorted for UI display (newest first)
+    const sorted = [...newTxns].sort((a, b) => {
+      const diff = parseUniversalDate(b.date) - parseUniversalDate(a.date);
+      if (diff !== 0) return diff;
+      return (b._index ?? b.sNo ?? 0) - (a._index ?? a.sNo ?? 0);
+    });
     setTransactions(sorted);
+
+    if (metadata) {
+      setDetectedStatementInfo(metadata);
+    }
   };
 
   const addParsedData = (fileName, bank, newTxns) => {
@@ -102,9 +122,11 @@ export const StatementProvider = ({ children }) => {
       const filteredNew = newTxns.filter(
         (t) => !existingHashes.has(t.hash || generateHash(t)),
       );
-      return [...prev, ...filteredNew].sort(
-        (a, b) => parseUniversalDate(b.date) - parseUniversalDate(a.date),
-      );
+      return [...prev, ...filteredNew].sort((a, b) => {
+        const diff = parseUniversalDate(b.date) - parseUniversalDate(a.date);
+        if (diff !== 0) return diff;
+        return (b._index ?? b.sNo ?? 0) - (a._index ?? a.sNo ?? 0);
+      });
     });
   };
 
@@ -150,53 +172,78 @@ export const StatementProvider = ({ children }) => {
     let suspiciousCount = 0;
 
     filteredTransactions.forEach((t) => {
+      const amountVal = cleanNumber(
+        t.amount ?? t.txnAmount ?? (t.deposit || t.withdrawal),
+      );
       if (t.type === "CREDIT" || t.type === "DEPOSIT") {
-        credit += t.amount || t.deposit || 0;
+        credit += isNaN(amountVal) ? 0 : amountVal;
       }
       if (t.type === "DEBIT" || t.type === "WITHDRAWAL") {
-        debit += t.amount || t.withdrawal || 0;
+        debit += isNaN(amountVal) ? 0 : amountVal;
       }
       if (t.isSuspicious) suspiciousCount++;
     });
 
     const netCashFlow = credit - debit;
 
-    // Clean and normalize balance values from string or numbers (handles formats like ₹1,39,145.80)
-    const cleanBalance = (val) => {
-      if (typeof val === "number") return val;
-      if (!val) return NaN;
-      const numericStr = String(val).replace(/[^0-9.-]+/g, "");
-      return Number(numericStr);
-    };
+    // Filter valid transactions with recorded balances
+    const validRawTxns = rawOrderTransactions.filter(
+      (t) =>
+        t.balance !== undefined &&
+        t.balance !== null &&
+        !isNaN(cleanNumber(t.balance)),
+    );
 
-    // Filter transactions having a valid balance, then sort by parsed date descending
-    const txnsWithBalance = filteredTransactions
-      .filter(
-        (t) =>
-          t.balance !== undefined &&
-          t.balance !== null &&
-          !isNaN(cleanBalance(t.balance)),
-      )
-      .sort((a, b) => parseUniversalDate(b.date) - parseUniversalDate(a.date));
+    let closingBalance = null;
 
-    const closingBalance =
-      txnsWithBalance.length > 0
-        ? cleanBalance(txnsWithBalance[0].balance)
-        : null;
+    if (validRawTxns.length > 0) {
+      const firstTxn = validRawTxns[0];
+      const lastTxn = validRawTxns[validRawTxns.length - 1];
+
+      const firstDate = parseUniversalDate(firstTxn.date || firstTxn.valueDate);
+      const lastDate = parseUniversalDate(lastTxn.date || lastTxn.valueDate);
+
+      if (lastDate > firstDate) {
+        // Ascending Order (e.g. 01-Aug-2025 to 19-Aug-2025): Closing balance is at the LAST index
+        closingBalance = cleanNumber(lastTxn.balance);
+      } else if (firstDate > lastDate) {
+        // Descending Order (e.g. 19-Aug-2025 to 01-Aug-2025): Closing balance is at the FIRST index
+        closingBalance = cleanNumber(firstTxn.balance);
+      } else {
+        // Same date or single day statement: Use the one with the higher _index / sNo
+        const firstIdx = firstTxn._index ?? firstTxn.sNo ?? 0;
+        const lastIdx = lastTxn._index ?? lastTxn.sNo ?? 0;
+
+        closingBalance =
+          lastIdx >= firstIdx
+            ? cleanNumber(lastTxn.balance)
+            : cleanNumber(firstTxn.balance);
+      }
+    }
+
+    // Secondary Fallback: Use detected metadata closingBalance if present
+    if (
+      (closingBalance === null || isNaN(closingBalance)) &&
+      detectedStatementInfo?.closingBalance
+    ) {
+      closingBalance = cleanNumber(detectedStatementInfo.closingBalance);
+    }
 
     return {
       totalCount: filteredTransactions.length,
-      credit,
-      debit,
-      netCashFlow,
+      credit: Number(credit.toFixed(2)),
+      debit: Number(debit.toFixed(2)),
+      netCashFlow: Number(netCashFlow.toFixed(2)),
       closingBalance,
       suspiciousCount,
     };
-  }, [filteredTransactions]);
+  }, [filteredTransactions, rawOrderTransactions, detectedStatementInfo]);
 
   const clearAll = () => {
     setFiles([]);
     setTransactions([]);
+    setRawOrderTransactions([]);
+    setDetectedStatementInfo(null);
   };
 
   return (
@@ -205,6 +252,8 @@ export const StatementProvider = ({ children }) => {
         files,
         transactions: filteredTransactions,
         rawTransactions: transactions,
+        detectedStatementInfo,
+        setDetectedStatementInfo,
         filter,
         setFilter,
         kpis,
