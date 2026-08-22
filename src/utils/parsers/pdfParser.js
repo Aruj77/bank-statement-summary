@@ -2,7 +2,7 @@ import * as pdfjsLib from "pdfjs-dist";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_BASE_URL;
+const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_BASE_URL_CONFIG;
 
 if (!BACKEND_BASE_URL) {
   throw new Error(
