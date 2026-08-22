@@ -2,7 +2,13 @@ import * as pdfjsLib from "pdfjs-dist";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-const BACKEND_BASE_URL = "https://bank-statement-summary-backend.vercel.app";
+const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_BASE_URL;
+
+if (!BACKEND_BASE_URL) {
+  throw new Error(
+    "VITE_BACKEND_BASE_URL is not configured. Please add it to your .env file.",
+  );
+}
 
 export async function parsePDFFile(
   file,
@@ -53,6 +59,7 @@ export async function parsePDFFile(
       if (!passwordCallback) {
         throw new Error("PDF_PASSWORD_REQUIRED");
       }
+
       throw err;
     }
 
@@ -68,6 +75,7 @@ export async function parsePDFFile(
   const formData = new FormData();
   formData.append("file", file);
   formData.append("bankType", bankType);
+
   if (resolvedPassword) {
     formData.append("password", resolvedPassword);
   }
@@ -75,24 +83,27 @@ export async function parsePDFFile(
   // 2. Prepare Form Data for Metadata extraction
   const metaFormData = new FormData();
   metaFormData.append("file", file);
+
   if (resolvedPassword) {
     metaFormData.append("password", resolvedPassword);
   }
 
-  // Execute both Parse PDF and Extract Metadata in parallel
+  // 3. Execute both requests in parallel
   const [statementResponse, metadataResponse] = await Promise.allSettled([
     fetch(`${BACKEND_BASE_URL}/parse-pdf`, {
       method: "POST",
       body: formData,
     }),
+
     fetch(`${BACKEND_BASE_URL}/api/extract-metadata`, {
       method: "POST",
       body: metaFormData,
     }),
   ]);
 
-  // Handle Statement Response
+  // 4. Handle Statement Response
   let statementData = {};
+
   if (statementResponse.status === "fulfilled" && statementResponse.value.ok) {
     statementData = await statementResponse.value.json();
   } else {
@@ -100,6 +111,7 @@ export async function parsePDFFile(
       statementResponse.status === "fulfilled"
         ? await statementResponse.value.json().catch(() => ({}))
         : {};
+
     throw new Error(
       errorPayload.message ||
         errorPayload.error ||
@@ -107,8 +119,9 @@ export async function parsePDFFile(
     );
   }
 
-  // Handle Metadata Response
+  // 5. Handle Metadata Response
   let metadata = {};
+
   if (metadataResponse.status === "fulfilled" && metadataResponse.value.ok) {
     try {
       const json = await metadataResponse.value.json();
@@ -118,8 +131,9 @@ export async function parsePDFFile(
     }
   }
 
-  // Normalize transactions list
+  // 6. Normalize transactions list
   let transactions = [];
+
   if (Array.isArray(statementData)) {
     transactions = statementData;
   } else if (Array.isArray(statementData?.transactions)) {
@@ -128,32 +142,48 @@ export async function parsePDFFile(
     transactions = statementData.data.transactions;
   }
 
-  // Unified Response
+  // 7. Unified Response
   return {
     ...statementData,
+
     transactions,
+
     metadata,
+
     bankName: metadata?.bankName || statementData?.bank || "Detected Bank",
+
     accountNumber:
       metadata?.accountNumber || statementData?.accountNumber || null,
+
     accountHolder:
       metadata?.accountHolder || statementData?.accountHolder || null,
+
     accountType: metadata?.accountType || statementData?.accountType || null,
+
     ifscCode: metadata?.ifscCode || null,
+
     micrCode: metadata?.micrCode || null,
+
     branch: metadata?.branch || null,
+
     address: metadata?.address || null,
+
     panNumber: metadata?.panNumber || null,
+
     cifNumber: metadata?.cifNumber || null,
+
     statementPeriod: metadata?.statementPeriod || null,
+
     openingBalance:
       metadata?.openingBalance ||
       statementData?.summary?.openingBalance ||
       null,
+
     closingBalance:
       metadata?.closingBalance ||
       statementData?.summary?.closingBalance ||
       null,
+
     resolvedPassword,
   };
 }
